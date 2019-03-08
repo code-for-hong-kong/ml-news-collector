@@ -7,7 +7,7 @@ from datetime import datetime
 import feedparser
 import yaml
 import logging
-import telepot
+from slackclient import SlackClient
 from bs4 import BeautifulSoup as bs
 
 logging.basicConfig(level=logging.INFO)
@@ -20,10 +20,11 @@ class NewsCollector(object):
             config = yaml.load(infile.read())["rss"]
         self.settings = config["settings"]
         self.urls = config["urls"]
-        self.bot = telepot.Bot(config["settings"]["token"])
+        self.token = os.environ.get("SLACK_TOKEN", "")
+        if self.token == "":
+            raise Exception("Token not set in environment variable")
 
-        # Subscribers
-        self.subscribers = config["subscribers"]
+        self.client = SlackClient(self.token)
 
         # Database connection
         self.db = sqlite3.connect(config["database"]["name"])
@@ -93,7 +94,7 @@ class NewsCollector(object):
             SELECT * FROM {}
             WHERE SENT = 0
             ORDER BY date DESC
-            LIMIT 200
+            LIMIT 50
         """.format(self.db_table, self.settings["daily_news"])
         news = list(self.cursor.execute(query))
         random.shuffle(news)
@@ -107,8 +108,8 @@ class NewsCollector(object):
             title = bs(n[3], "lxml").text.strip()
             description = " ".join(
                 bs(n[4], "lxml").text.split(" ")[:40]).strip()
-            message = "[{}]({})\n{} - {}\n> {} ...\n\n".format(
-                title, n[5], n[6][:10], n[1], description)
+            message = "<{}|{}>\n{} - {}\n> {} ...".format(
+                n[5], title, n[6][:10], n[1], description)
             messages.append(message)
 
         # Set message as send
@@ -122,14 +123,16 @@ class NewsCollector(object):
         self.db.commit()
 
         # Send message to telegram subscribers
-        for chat_id in self.subscribers:
-            logging.info("Sending messages to {}".format(chat_id))
-            for m in messages:
-                self.bot.sendMessage(chat_id, m, parse_mode='Markdown')
+        logging.info("Sending messages to Slack")
+        message = "\n\n".join(messages)
+        self.client.api_call(
+            "chat.postMessage",
+            channel="ml-news",
+            text=message)
 
 
 if __name__ == "__main__":
 
     collector = NewsCollector()
-    collector.collect_news()
+    #collector.collect_news()
     collector.send_news()
