@@ -134,5 +134,5 @@ class NewsCollector(object):
 if __name__ == "__main__":
 
     collector = NewsCollector()
-    #collector.collect_news()
+    collector.collect_news()
     collector.send_news()
